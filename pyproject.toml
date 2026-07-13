@@ -1,0 +1,12 @@
+[project]
+name = "func-extractor"
+version = "0.1.0"
+description = "Extract functions from source code into a database using tree-sitter (C, Java, Python)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "tree-sitter>=0.21.3",
+    "tree-sitter-c>=0.21.4",
+    "tree-sitter-java>=0.21.0",
+    "tree-sitter-python>=0.23.0",
+]
