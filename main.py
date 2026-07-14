@@ -1,29 +1,29 @@
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 
+def seek_func(root_node, func_list):
+    for i in range(root_node.child_count):
+
+        if (root_node.children[i].type == "function_definition"):
+            func_name = root_node.children[i].child_by_field_name("name").text.decode("utf-8")
+            func_code = root_node.children[i].text.decode("utf-8")
+
+            func_list.append({
+                "name": func_name,
+                "code": func_code
+            })
+
+        seek_func(root_node.children[i], func_list)
+
 py_language = Language(tspython.language())
 parser = Parser(py_language)
 
-tree = parser.parse(
-       bytes(
-       """
-        def add(a,b):
-            return a + b
-       """,
-       "utf8"
-       ))
+with open("test_programs/test.py", "rb") as file:
+    data = file.read()
 
-func_name = tree.root_node.children[0].children[1].text
-print(func_name)
+tree = parser.parse(data)
 
-func_body = tree.root_node.children[0].text
-print(func_body)
+func_list = []
+seek_func(tree.root_node, func_list)
 
-print(tree.root_node.type)
-print(tree.root_node.children[0].type)
-print(tree.root_node.children[0].children[0].type)
-print(tree.root_node.children[0].children[1].type)
-print(tree.root_node.children[0].children[2].type)
-print(tree.root_node.children[0].children[3].type)
-print(tree.root_node.children[0].children[4].type)
-print(tree.root_node.children[0].children[4].children[0].type)
+print(func_list)
