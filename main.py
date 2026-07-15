@@ -3,21 +3,20 @@ import tree_sitter_c as tsc
 import tree_sitter_java as tsjava
 from tree_sitter import Language, Parser
 from pathlib import Path
+# from whats_that_code.election import guess_language_all_methods
+# from whats_that_code.options import Options
 
 language_info = []
-language_info.append({"suffix": ".py",   "func_def": "function_definition", "tree_sitter": tspython, "target": "name"})
-language_info.append({"suffix": ".c",    "func_def": "function_definition", "tree_sitter": tsc,      "target": "declarator"})
-language_info.append({"suffix": ".java", "func_def": "method_declaration",  "tree_sitter": tsjava,   "target": " "})
+language_info.append({"func_def": "function_definition", "tree_sitter": tspython, "target": "name"})
+language_info.append({"func_def": "function_definition", "tree_sitter": tsc,      "target": "declarator"})
+language_info.append({"func_def": "method_declaration",  "tree_sitter": tsjava,   "target": " "})
 
 def seek_func(root_node, func_list, func_def, target):
     for i in range(root_node.child_count):
-
         if (root_node.children[i].type == func_def):
             func_name = seek_func_name(root_node.children[i], target)
             func_code = root_node.children[i].text.decode("utf-8")
-
             func_list.append({"name": func_name, "code": func_code})
-
         seek_func(root_node.children[i], func_list, func_def, target)
 
 def seek_func_name(node, target):
@@ -25,23 +24,31 @@ def seek_func_name(node, target):
         return node.text.decode("utf-8")
     return seek_func_name(node.child_by_field_name(target), target)
 
-file_path = input()
-
-file_suffix = Path(file_path).suffix
-for language in language_info:
-    if file_suffix == language["suffix"]:
-        current_language = language
-
-with open(file_path, "rb") as file:
-    data = file.read()
-
-language = Language(current_language["tree_sitter"].language())
-parser = Parser(language)
-
-tree = parser.parse(data)
+def process_file(file_path):
+    with open(file_path, "rb") as file:
+        data = file.read()
+        for current_language in language_info:
+            language = Language(current_language["tree_sitter"].language())
+            parser = Parser(language)
+            tree = parser.parse(data)
+            if tree.root_node.has_error:
+                continue
+            seek_func(tree.root_node, func_list, current_language["func_def"], current_language["target"])
+            break
 
 func_list = []
-seek_func(tree.root_node, func_list, current_language["func_def"], current_language["target"])
+folder_path = Path(input())
+
+if folder_path.is_dir():
+    for file_path in Path(folder_path).rglob("*"):
+        if not file_path.is_file():
+            continue
+        process_file(file_path)
+
+if folder_path.is_file():
+    process_file(folder_path)
+
+# language_name = guess_language_all_methods(data.decode("utf-8"), options=Options(use_parsers=True))
 
 print(func_list)
 
