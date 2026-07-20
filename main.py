@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import sys
 
+# TODO[flops]: Let's make LanguageInfo class instead of dict with lang_name, func_def e.t.c.
 language_info = []
 language_info.append({"lang_name": "python", "func_def": "function_definition", "tree_sitter": tspython, "target": "name"})
 language_info.append({"lang_name": "c",      "func_def": "function_definition", "tree_sitter": tsc,      "target": "declarator"})
@@ -13,6 +14,7 @@ language_info.append({"lang_name": "java",   "func_def": "method_declaration",  
 
 
 def parse_arguments():
+    # FIXME[flops]: Let's use argparse instead
     if len(sys.argv) != 3:
         print(f"Program exit with fail. Usage: uv run python {Path(sys.argv[0]).name} <target_path> <database_file>")
         sys.exit(1)
@@ -25,6 +27,7 @@ def parse_arguments():
 def seek_func_name(node, target):
     if node.type == "identifier":
         return node.text.decode("utf-8")
+    # FIXME[flops]: child_by_field_name can return None, so we need to handle it too
     return seek_func_name(node.child_by_field_name(target), target)
 
 
@@ -34,15 +37,21 @@ def seek_func(root_node, func_def, target, language, file_path):
         if child.type == func_def:
             func_name = seek_func_name(child, target)
             func_code = child.text.decode("utf-8")
+            # FIXME[flops]: Let's make class FunctionInfo witn name,code e.t.c. fields
             func_list.append({"name": func_name, "code": func_code, "language": language, "file_path": file_path})
+        # FIXME[flops]: Recursion won't work for big projects with billions lines of code and deep AST
+        # You can make it iterative instead
         func_list += seek_func(child, func_def, target, language, file_path)
     return func_list
 
 
 def process_file(file_path):
+    # FIXME[flops]: We need to handle case when file doesn't exist too
     with open(file_path, "rb") as file:
         data = file.read()
 
+    # FIXME[flops]: We are recreating parser on every file. Let's suggest project language once (e.g. using whats-that-code) and then we will use parser only for that lang
+    # FIXME[flops]: Also we need to skip dirs such as .git, .venv e.t.c.
     for current_language in language_info:
         language = Language(current_language["tree_sitter"].language())
         parser = Parser(language)
@@ -67,6 +76,7 @@ def main():
     target_path, database_file = parse_arguments()
     func_list = []
 
+    # FIXME[flops]: We are holding ALL functions names, code, tree-sitter e.t.c. in RAM. We can write it in DB using batches
     if target_path.is_dir():
         for file_path in target_path.rglob("*"):
             if not file_path.is_file():
