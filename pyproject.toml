@@ -10,3 +10,7 @@ dependencies = [
     "tree-sitter-java>=0.21.0",
     "tree-sitter-python>=0.23.0",
 ]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
