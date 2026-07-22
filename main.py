@@ -6,6 +6,9 @@ from pathlib import Path
 import sqlite3
 import sys
 
+# TODO[DKay]: Program should print some output while working for user to know all is ok and estimated time established
+# FIXME[Dkay]: code is not PEP-8, use formatter
+
 # TODO[flops]: Let's make LanguageInfo class instead of dict with lang_name, func_def e.t.c.
 language_info = []
 language_info.append({"lang_name": "python", "func_def": "function_definition", "tree_sitter": tspython, "target": "name"})
@@ -23,11 +26,12 @@ def parse_arguments():
     database_file = sys.argv[2]
     return target_path, database_file
 
-
+#FIXME[Dkay]: Add some type hints, at least for params but better for all variables
 def seek_func_name(node, target):
-    if node.type == "identifier":
+    if node.type == "identifier": 
         return node.text.decode("utf-8")
     # FIXME[flops]: child_by_field_name can return None, so we need to handle it too
+    # FIXME[Dkay]: Stack overflow is possible. Rewrite via loop
     return seek_func_name(node.child_by_field_name(target), target)
 
 
@@ -52,6 +56,7 @@ def process_file(file_path):
 
     # FIXME[flops]: We are recreating parser on every file. Let's suggest project language once (e.g. using whats-that-code) and then we will use parser only for that lang
     # FIXME[flops]: Also we need to skip dirs such as .git, .venv e.t.c.
+    # FIMXE[DKay]: What if there is a exception while parsing?
     for current_language in language_info:
         language = Language(current_language["tree_sitter"].language())
         parser = Parser(language)
@@ -66,6 +71,8 @@ def process_file(file_path):
 def list_to_db(func_list, database_file):
     con = sqlite3.connect(database_file)
     cur = con.cursor()
+    # FIXME[DKay]: it's better to explicitly add columns types so you could document your schema
+    # FIXME[Dkay]: add some constaints on columns, i.e. NOT NULL etc.
     cur.execute("CREATE TABLE IF NOT EXISTS functions(name, code, language, file_path)")
     cur.executemany("INSERT INTO functions VALUES(:name, :code, :language, :file_path)", func_list)
     con.commit()
@@ -74,7 +81,7 @@ def list_to_db(func_list, database_file):
 
 def main():
     target_path, database_file = parse_arguments()
-    func_list = []
+    func_list = [] # FIXME[Dkay]: should be a list of dataclasses
 
     # FIXME[flops]: We are holding ALL functions names, code, tree-sitter e.t.c. in RAM. We can write it in DB using batches
     if target_path.is_dir():
@@ -83,6 +90,9 @@ def main():
                 continue
             func_list += process_file(file_path)
     elif target_path.is_file():
+        # FIXME[Dkay]: What if there hundreds of billions functions in project? You don't want to store all of them in RAM.
+        # Better make it asynchronous: while we are waiting for async write for another batch on disk, we could 
+        # collect more functions
         func_list += process_file(target_path)
 
     list_to_db(func_list, database_file)
