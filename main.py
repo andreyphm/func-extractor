@@ -1,193 +1,101 @@
 import tree_sitter_python as tspython
 import tree_sitter_c as tsc
 import tree_sitter_java as tsjava
-from tree_sitter import Language, Parser, Node
+from tree_sitter import Language, Parser
 from pathlib import Path
-from dataclasses import dataclass, asdict
-from typing import Iterator
-from tqdm import tqdm
 import sqlite3
-import argparse
+import sys
+
+# TODO[DKay]: Program should print some output while working for user to know all is ok and estimated time established
+# FIXME[Dkay]: code is not PEP-8, use formatter
+
+# TODO[flops]: Let's make LanguageInfo class instead of dict with lang_name, func_def e.t.c.
+language_info = []
+language_info.append({"lang_name": "python", "func_def": "function_definition", "tree_sitter": tspython, "target": "name"})
+language_info.append({"lang_name": "c",      "func_def": "function_definition", "tree_sitter": tsc,      "target": "declarator"})
+language_info.append({"lang_name": "java",   "func_def": "method_declaration",  "tree_sitter": tsjava,   "target": "name"})
 
 
-@dataclass
-class LanguageInfo:
-    name: str
-    func_def: str
-    parser: Parser
-    target: str
+def parse_arguments():
+    # FIXME[flops]: Let's use argparse instead
+    if len(sys.argv) != 3:
+        print(f"Program exit with fail. Usage: uv run python {Path(sys.argv[0]).name} <target_path> <database_file>")
+        sys.exit(1)
+
+    target_path = Path(sys.argv[1])
+    database_file = sys.argv[2]
+    return target_path, database_file
+
+#FIXME[Dkay]: Add some type hints, at least for params but better for all variables
+def seek_func_name(node, target):
+    if node.type == "identifier": 
+        return node.text.decode("utf-8")
+    # FIXME[flops]: child_by_field_name can return None, so we need to handle it too
+    # FIXME[Dkay]: Stack overflow is possible. Rewrite via loop
+    return seek_func_name(node.child_by_field_name(target), target)
 
 
-@dataclass
-class FunctionInfo:
-    name: str
-    code: str
-    language: str
-    file_path: str
-
-
-LANGUAGES: list[LanguageInfo] = [
-    LanguageInfo(
-        name="python",
-        func_def="function_definition",
-        parser=Parser(Language(tspython.language())),
-        target="name",
-    ),
-    LanguageInfo(
-        name="c",
-        func_def="function_definition",
-        parser=Parser(Language(tsc.language())),
-        target="declarator",
-    ),
-    LanguageInfo(
-        name="java",
-        func_def="method_declaration",
-        parser=Parser(Language(tsjava.language())),
-        target="name",
-    ),
-]
-
-IGNORED_DIRS: set[str] = {
-    ".git",
-    ".venv",
-    "__pycache__",
-    ".pytest_cache",
-    ".ruff_cache",
-}
-
-
-def parse_arguments() -> tuple[Path, str]:
-    parser = argparse.ArgumentParser(
-        description="Extract functions from a source code project into a SQLite database."
-    )
-    parser.add_argument("target_path", type=Path, help="Directory or file to analyze")
-    parser.add_argument(
-        "database_file", type=str, help="Path to the output SQLite database file"
-    )
-
-    args: argparse.Namespace = parser.parse_args()
-    return args.target_path, args.database_file
-
-
-def extract_func_name(node: Node, target: str) -> str:
-    while node.type != "identifier":
-        child: Node | None = node.child_by_field_name(target)
-        if child is None:
-            raise ValueError(
-                f"Could not resolve function name: no '{target}' field on node of type '{node.type}'"
-            )
-        node = child
-    return node.text.decode("utf-8")
-
-
-def extract_functions(
-    root_node: Node, func_def: str, target: str, language: str, file_path: str
-) -> list[FunctionInfo]:
-    func_list: list[FunctionInfo] = []
-    stack: list[Node] = list(root_node.children)
-
-    while stack:
-        node = stack.pop()
-
-        if node.type == func_def:
-            try:
-                func_name = extract_func_name(node, target)
-                func_code = node.text.decode("utf-8")
-                func_list.append(
-                    FunctionInfo(
-                        name=func_name,
-                        code=func_code,
-                        language=language,
-                        file_path=file_path,
-                    )
-                )
-            except ValueError as error:
-                line = node.start_point[0] + 1
-                tqdm.write(
-                    f"Warning: failed to add function in {file_path}, line {line}: {error}"
-                )
-
-        stack.extend(node.children)
-
+def seek_func(root_node, func_def, target, language, file_path):
+    func_list = []
+    for child in root_node.children:
+        if child.type == func_def:
+            func_name = seek_func_name(child, target)
+            func_code = child.text.decode("utf-8")
+            # FIXME[flops]: Let's make class FunctionInfo witn name,code e.t.c. fields
+            func_list.append({"name": func_name, "code": func_code, "language": language, "file_path": file_path})
+        # FIXME[flops]: Recursion won't work for big projects with billions lines of code and deep AST
+        # You can make it iterative instead
+        func_list += seek_func(child, func_def, target, language, file_path)
     return func_list
 
 
-def find_files(target_path: Path) -> Iterator[Path]:
-    for dir_path, dir_names, file_names in target_path.walk():
-        dir_names[:] = [name for name in dir_names if name not in IGNORED_DIRS]
-        for file_name in file_names:
-            yield dir_path / file_name
+def process_file(file_path):
+    # FIXME[flops]: We need to handle case when file doesn't exist too
+    with open(file_path, "rb") as file:
+        data = file.read()
 
-
-def process_file(file_path: Path) -> list[FunctionInfo]:
-    try:
-        with open(file_path, "rb") as file:
-            data: bytes = file.read()
-    except OSError as error:
-        tqdm.write(f"Warning: can't open file {file_path}: {error}")
-        return []
-
-    for current_language in LANGUAGES:
-        try:
-            tree = current_language.parser.parse(data)
-        except Exception as error:
-            tqdm.write(
-                f"Warning: failed to parse {file_path} as {current_language.name}: {error}"
-            )
-            continue
-
+    # FIXME[flops]: We are recreating parser on every file. Let's suggest project language once (e.g. using whats-that-code) and then we will use parser only for that lang
+    # FIXME[flops]: Also we need to skip dirs such as .git, .venv e.t.c.
+    # FIMXE[DKay]: What if there is a exception while parsing?
+    for current_language in language_info:
+        language = Language(current_language["tree_sitter"].language())
+        parser = Parser(language)
+        tree = parser.parse(data)
         if tree.root_node.has_error:
             continue
-        return extract_functions(
-            tree.root_node,
-            current_language.func_def,
-            current_language.target,
-            current_language.name,
-            str(file_path),
-        )
-    tqdm.write(f"Warning: could not recognize the language of {file_path}")
+        return seek_func(tree.root_node, current_language["func_def"],
+                         current_language["target"], current_language["lang_name"], str(file_path))
     return []
 
 
-def create_table(con: sqlite3.Connection) -> None:
-    cur = con.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS functions(
-            name TEXT NOT NULL,
-            code TEXT NOT NULL,
-            language TEXT NOT NULL,
-            file_path TEXT NOT NULL
-        )
-        """
-    )
-
-
-def insert_functions(con: sqlite3.Connection, func_list: list[FunctionInfo]) -> None:
-    if not func_list:
-        return
-    cur = con.cursor()
-    cur.executemany(
-        "INSERT INTO functions VALUES(:name, :code, :language, :file_path)",
-        [asdict(func) for func in func_list],
-    )
-
-
-def main() -> None:
-    target_path, database_file = parse_arguments()
+def list_to_db(func_list, database_file):
     con = sqlite3.connect(database_file)
-    create_table(con)
-
-    if target_path.is_dir():
-        files = list(find_files(target_path))
-        for file_path in tqdm(files, total=len(files), desc="Processing files"):
-            insert_functions(con, process_file(file_path))
-    elif target_path.is_file():
-        insert_functions(con, process_file(target_path))
-
+    cur = con.cursor()
+    # FIXME[DKay]: it's better to explicitly add columns types so you could document your schema
+    # FIXME[Dkay]: add some constaints on columns, i.e. NOT NULL etc.
+    cur.execute("CREATE TABLE IF NOT EXISTS functions(name, code, language, file_path)")
+    cur.executemany("INSERT INTO functions VALUES(:name, :code, :language, :file_path)", func_list)
     con.commit()
     con.close()
-    tqdm.write("Program completed.")
+
+
+def main():
+    target_path, database_file = parse_arguments()
+    func_list = [] # FIXME[Dkay]: should be a list of dataclasses
+
+    # FIXME[flops]: We are holding ALL functions names, code, tree-sitter e.t.c. in RAM. We can write it in DB using batches
+    if target_path.is_dir():
+        for file_path in target_path.rglob("*"):
+            if not file_path.is_file():
+                continue
+            func_list += process_file(file_path)
+    elif target_path.is_file():
+        # FIXME[Dkay]: What if there hundreds of billions functions in project? You don't want to store all of them in RAM.
+        # Better make it asynchronous: while we are waiting for async write for another batch on disk, we could 
+        # collect more functions
+        func_list += process_file(target_path)
+
+    list_to_db(func_list, database_file)
 
 
 if __name__ == "__main__":
