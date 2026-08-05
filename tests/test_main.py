@@ -1,14 +1,9 @@
 import pytest
 import sqlite3
 
-from main import (
-    FunctionInfo,
-    extract_func_name,
-    find_files,
-    process_file,
-    create_table,
-    insert_functions,
-)
+from database import create_table, insert_functions
+from input_processing import find_files
+from extraction import FunctionInfo, extract_func_name, process_file
 
 
 class DummyNode:
